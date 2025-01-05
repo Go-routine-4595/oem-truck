@@ -86,7 +86,7 @@ func (p *Presenter) Start(cancel func(), ctx context.Context) {
 		case data := <-p.dataCh:
 			p.log.Info().Msgf("Received data size: %d", len(data.Trucks))
 			dataString := sortMapByKey(data.Trucks)
-			p.displayMap(dataString, 0)
+			p.displayMap(dataString)
 			truckCount = len(data.Trucks)
 			alarmCount = data.GlobalAlarmsCount
 		//	_ = dataString
@@ -167,7 +167,7 @@ func (p *Presenter) debug(msg string) {
 	writeText(p.screen, 0, 3, p.titleStyle, msg)
 }
 
-func (p *Presenter) displayMap(data []string, counter int) {
+func (p *Presenter) displayMap(data []string) {
 
 	// Display the data in the map
 	row := 4
