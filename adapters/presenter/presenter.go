@@ -14,6 +14,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	refreshRate = 500 * time.Millisecond
+)
+
 type Presenter struct {
 	screen      tcell.Screen
 	dataCh      chan model.TrucksInfo
@@ -71,11 +75,19 @@ func (p *Presenter) Start(cancel func(), ctx context.Context) {
 	var (
 		truckCount int
 		alarmCount int
+		keyChan    chan *tcell.EventKey
+		position   int
+		rows       int
+		dataString []string
 	)
 
-	go p.listenKey(cancel)
+	keyChan = make(chan *tcell.EventKey)
+
+	go p.listenKey(cancel, keyChan)
 
 	p.log.Info().Msg("Starting")
+
+	_, rows = p.screen.Size()
 
 	for {
 		// clear the screen
@@ -85,8 +97,7 @@ func (p *Presenter) Start(cancel func(), ctx context.Context) {
 		select {
 		case data := <-p.dataCh:
 			p.log.Info().Msgf("Received data size: %d", len(data.Trucks))
-			dataString := sortMapByKey(data.Trucks)
-			p.displayMap(dataString)
+			dataString = sortMapByKey(data.Trucks)
 			truckCount = len(data.Trucks)
 			alarmCount = data.GlobalAlarmsCount
 		//	_ = dataString
@@ -94,24 +105,39 @@ func (p *Presenter) Start(cancel func(), ctx context.Context) {
 		//	p.log.Trace().Msgf("Data: %s", dataString)
 		case <-time.After(5 * time.Second):
 			p.log.Info().Msg("Timeout occurred, no data received")
-
 		case <-ctx.Done():
 			p.log.Info().Msg("Context Done")
 			return
 
+		case ev := <-keyChan:
+			p.log.Debug().Msgf("Key event: %v", ev)
+			p.log.Debug().Msgf("Key: %v", ev.Key())
+			p.log.Debug().Msgf("Position: %v", position)
+			switch ev.Key() {
+			case tcell.KeyUp:
+				if position >= 1 {
+					position--
+				}
+			case tcell.KeyDown:
+				if position < rows {
+					position++
+				}
+			}
 		default:
 			p.log.Debug().Msg("No data available, skipping")
 		}
 
 		// Update screen
+		p.displayMap(dataString, position)
 		p.screen.Show()
 
-		time.Sleep(1 * time.Second)
+		time.Sleep(refreshRate)
 
 	}
 }
 
-func (p *Presenter) listenKey(cancel func()) {
+func (p *Presenter) listenKey(cancel func(), keyChan chan *tcell.EventKey) {
+
 	for {
 		// Poll event
 		evP := p.screen.PollEvent()
@@ -129,6 +155,8 @@ func (p *Presenter) listenKey(cancel func()) {
 				p.screen.Sync()
 			} else if ev.Rune() == 'C' || ev.Rune() == 'c' {
 				p.screen.Clear()
+			} else {
+				keyChan <- ev
 			}
 		}
 	}
@@ -139,14 +167,14 @@ func (p *Presenter) Stop() {
 }
 
 func (p *Presenter) SendTrucks(data model.TrucksInfo) {
-	p.log.Debug().Msgf("Sending data: %d", len(data.Trucks))
+	//p.log.Debug().Msgf("Sending data: %d", len(data.Trucks))
 	if p.dataCh != nil {
 		if len(p.dataCh) < 5 {
 			p.dataCh <- data
-			p.log.Debug().Msg("Channel successful send data")
+			//p.log.Debug().Msg("Channel successful send data")
 			return
 		}
-		p.log.Debug().Msg("Channel is full")
+		// p.log.Debug().Msgf("Channel is full chan:  %d", len(p.dataCh))
 		return
 	}
 	p.log.Debug().Msg("Channel is nil")
@@ -167,14 +195,33 @@ func (p *Presenter) debug(msg string) {
 	writeText(p.screen, 0, 3, p.titleStyle, msg)
 }
 
-func (p *Presenter) displayMap(data []string) {
+func (p *Presenter) displayMap(data []string, position int) {
+
+	var (
+		dataLen int = len(data)
+		rows    int
+		maxLine int
+	)
+
+	_, rows = p.screen.Size()
 
 	// Display the data in the map
 	row := 4
 	dataStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
-	for _, truck := range data {
+	//for _, truck := range data {
+	// Find the end
+	maxLine = min(rows-4, dataLen)
+
+	p.log.Debug().
+		Int("position", position).
+		Int("maxLine", maxLine).
+		Int("rows", rows).
+		Int("dataLen", dataLen).
+		Msg("displayMap")
+
+	for i := position; i < maxLine+position; i++ {
 		//writeText(screen, 0, row, dataStyle, fmt.Sprintf("Truck: %s - Alarms: %d", truck, count))
-		writeText(p.screen, 0, row, dataStyle, truck)
+		writeText(p.screen, 0, row, dataStyle, data[i])
 		row++
 	}
 
